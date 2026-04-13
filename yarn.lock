@@ -47,6 +47,27 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@dsanders11/electron-llm@workspace:*, @dsanders11/electron-llm@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "@dsanders11/electron-llm@workspace:."
+  dependencies:
+    "@electron/rebuild": "npm:^4.0.3"
+    "@tsconfig/node22": "npm:^22.0.0"
+    "@vitest/coverage-v8": "npm:^4.0.18"
+    electron: "npm:^39.8.4"
+    eslint: "npm:^8.57.1"
+    husky: "npm:^9.1.7"
+    lint-staged: "npm:^16.4.0"
+    node-llama-cpp: "npm:^3.7.0"
+    prettier: "npm:^3.5.2"
+    typescript: "npm:^5.7.3"
+    vitest: "npm:^4.0.18"
+  dependenciesMeta:
+    electron:
+      built: true
+  languageName: unknown
+  linkType: soft
+
 "@electron/get@npm:^2.0.0":
   version: 2.0.3
   resolution: "@electron/get@npm:2.0.3"
@@ -65,27 +86,6 @@ __metadata:
   checksum: 10c0/148957d531bac50c29541515f2483c3e5c9c6ba9f0269a5d536540d2b8d849188a89588f18901f3a84c2b4fd376d1e0c5ea2159eb2d17bda68558f57df19015e
   languageName: node
   linkType: hard
-
-"@electron/llm@workspace:*, @electron/llm@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "@electron/llm@workspace:."
-  dependencies:
-    "@electron/rebuild": "npm:^4.0.3"
-    "@tsconfig/node22": "npm:^22.0.0"
-    "@vitest/coverage-v8": "npm:^4.0.18"
-    electron: "npm:^39.8.4"
-    eslint: "npm:^8.57.1"
-    husky: "npm:^9.1.7"
-    lint-staged: "npm:^16.4.0"
-    node-llama-cpp: "npm:^3.7.0"
-    prettier: "npm:^3.5.2"
-    typescript: "npm:^5.7.3"
-    vitest: "npm:^4.0.18"
-  dependenciesMeta:
-    electron:
-      built: true
-  languageName: unknown
-  linkType: soft
 
 "@electron/rebuild@npm:^4.0.3":
   version: 4.0.3
@@ -1675,7 +1675,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "end-to-end-eacda6@workspace:end-to-end"
   dependencies:
-    "@electron/llm": "workspace:*"
+    "@dsanders11/electron-llm": "workspace:*"
   languageName: unknown
   linkType: soft
 

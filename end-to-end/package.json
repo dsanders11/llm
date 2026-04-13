@@ -1,6 +1,6 @@
 {
   "main": "dist/main/index.js",
   "dependencies": {
-    "@electron/llm": "workspace:*"
+    "@dsanders11/electron-llm": "workspace:*"
   }
 }

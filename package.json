@@ -1,5 +1,5 @@
 {
-  "name": "@electron/llm",
+  "name": "@dsanders11/electron-llm",
   "version": "0.0.0-development",
   "description": "Load and use an LLM model directly in Electron. Experimental.",
   "main": "dist/index.js",
@@ -62,7 +62,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/electron/llm.git"
+    "url": "git+https://github.com/dsanders11/llm.git"
   },
   "dependencies": {
     "node-llama-cpp": "^3.7.0"
