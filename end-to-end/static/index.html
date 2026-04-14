@@ -3,56 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Chat Interface</title>
+  <title>@electron/llm — Prompt API Demo</title>
   <style>
-    /* Base styles */
     body {
       max-width: 800px;
       margin: 0 auto;
       padding: 20px;
       font-family: system-ui, -apple-system, sans-serif;
-    }
-
-    /* Form styles */
-    .config-form {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      margin: 1.5rem 0;
-    }
-
-    .form-group {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    /* Input styles */
-    input, textarea {
-      padding: 0.5rem;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-size: 1rem;
-    }
-
-    button {
-      padding: 0.5rem 1rem;
-      background-color: #007bff;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 1rem;
-    }
-
-    button:hover {
-      background-color: #0056b3;
-    }
-
-    /* Chat styles */
-    .chat-container {
-      display: none;
-      margin-top: 1.5rem;
     }
 
     .chat-messages {
@@ -91,119 +48,93 @@
       flex-grow: 1;
       resize: vertical;
       min-height: 60px;
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 1rem;
     }
+
+    button {
+      padding: 0.5rem 1rem;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+
+    button:hover { background-color: #0056b3; }
+    button:disabled { background-color: #999; cursor: default; }
+
+    #status { margin-bottom: 1rem; color: #666; }
   </style>
 </head>
 <body>
-  <h1>@electron/llm</h1>
+  <h1>@electron/llm — Prompt API Demo</h1>
 
-  <div class="config-form">
-    <div class="form-group">
-      <label for="modelFile">Model File:</label>
-      <input type="file" id="modelFile" accept=".bin,.gguf">
-    </div>
+  <div id="status">Connecting to model...</div>
 
-    <div class="form-group">
-      <label for="systemPrompt">System Prompt:</label>
-      <textarea id="systemPrompt" rows="3" placeholder="Enter system prompt..."></textarea>
-    </div>
-
-    <div class="form-group">
-      <label for="initialPrompts">Initial Prompts:</label>
-      <textarea id="initialPrompts" rows="5" placeholder="Enter one prompt per line..."></textarea>
-    </div>
-
-    <div class="form-group">
-      <label for="topK">Top K:</label>
-      <input type="number" id="topK" value="40" min="1" max="100">
-    </div>
-
-    <div class="form-group">
-      <label for="temperature">Temperature:</label>
-      <input type="number" id="temperature" step="0.1" value="0.8" min="0" max="2">
-    </div>
-
-    <button onclick="loadModel()">Load Model</button>
+  <div class="chat-messages" id="chatMessages"></div>
+  <div class="chat-input">
+    <textarea
+      id="userInput"
+      placeholder="Type your message... (Enter to send)"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"
+    ></textarea>
+    <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
   </div>
 
-  <div class="chat-container" id="chatContainer">
-    <div class="chat-messages" id="chatMessages"></div>
-    <div class="chat-input">
-      <textarea
-        id="userInput"
-        placeholder="Type your message here... (Press Enter to send)"
-        onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); }"></textarea>
-      <button onclick="sendMessage()">Send</button>
-    </div>
-  </div>
+  <script>
+    let model = null;
 
-  <script type="module">
-    const createMessageElement = (content, type) => {
-      const messageDiv = document.createElement('div');
-      messageDiv.className = `message ${type}-message`;
-
-      const strong = document.createElement('strong');
-      strong.textContent = type === 'user' ? 'You' : 'Model';
-
-      messageDiv.appendChild(strong);
-      messageDiv.appendChild(document.createTextNode(': '));
-      messageDiv.appendChild(document.createTextNode(content));
-
-      return messageDiv;
-    };
-
-    window.loadModel = async () => {
-      const modelFile = document.getElementById('modelFile').files[0];
-      if (!modelFile) {
-        alert('Please select a model file');
-        return;
-      }
-
-      const config = {
-        modelPath: await window.electron.getPathForFile(modelFile),
-        systemPrompt: document.getElementById('systemPrompt').value.trim() || undefined,
-        initialPrompts: document.getElementById('initialPrompts').value
-          .split('\n')
-          .filter(text => text.trim())
-          .map(text => ({ role: 'user', content: text })),
-        topK: parseInt(document.getElementById('topK').value),
-        temperature: parseFloat(document.getElementById('temperature').value)
-      };
-
+    async function init() {
+      const status = document.getElementById('status');
       try {
-        await window.electronAi.create(config);
-        document.querySelector('.config-form').style.display = 'none';
-        document.getElementById('chatContainer').style.display = 'block';
-      } catch (error) {
-        console.error('Error loading model:', error);
-        alert(`Error loading model: ${error.message}`);
-      }
-    };
-
-    window.sendMessage = async () => {
-      const userInput = document.getElementById('userInput');
-      const messagesContainer = document.getElementById('chatMessages');
-      const message = userInput.value.trim();
-
-      if (!message) return;
-
-      messagesContainer.appendChild(createMessageElement(message, 'user'));
-      userInput.value = '';
-
-      try {
-        const modelMessage = createMessageElement('', 'model');
-        messagesContainer.appendChild(modelMessage);
-
-        const stream = await window.electronAi.promptStreaming(message);
-        for await (const chunk of stream) {
-          modelMessage.textContent = 'Model: ' + (modelMessage.textContent.slice(7) + chunk);
-          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        const availability = await LanguageModel.availability();
+        status.textContent = `Availability: ${availability}`;
+        if (availability === 'available') {
+          model = await LanguageModel.create();
+          status.textContent = 'Model ready.';
+          document.getElementById('sendBtn').disabled = false;
         }
-      } catch (error) {
-        console.error('Error getting response:', error);
-        alert(`Error getting response: ${error.message}`);
+      } catch (err) {
+        status.textContent = `Error: ${err.message}`;
       }
-    };
+    }
+
+    function addMessage(content, type) {
+      const el = document.createElement('div');
+      el.className = `message ${type}-message`;
+      el.textContent = `${type === 'user' ? 'You' : 'Model'}: ${content}`;
+      document.getElementById('chatMessages').appendChild(el);
+      el.scrollIntoView();
+      return el;
+    }
+
+    async function sendMessage() {
+      if (!model) return;
+      const input = document.getElementById('userInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      addMessage(text, 'user');
+      input.value = '';
+
+      const el = addMessage('', 'model');
+      try {
+        const stream = await model.promptStreaming(text);
+        let full = '';
+        for await (const chunk of stream) {
+          full = chunk;
+          el.textContent = `Model: ${full}`;
+        }
+      } catch (err) {
+        el.textContent = `Model: Error — ${err.message}`;
+      }
+    }
+
+    init();
   </script>
 </body>
 </html>

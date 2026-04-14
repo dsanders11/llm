@@ -3,131 +3,138 @@
 [![Test](https://github.com/electron/llm/actions/workflows/test.yml/badge.svg)](https://github.com/electron/llm/actions/workflows/test.yml)
 [![npm version](https://img.shields.io/npm/v/@electron/llm.svg)](https://npmjs.org/package/@electron/llm)
 
-This module makes it easy for developers to prototype local-first applications interacting with local large language models (LLMs), especially in chat contexts.
+A [`LanguageModel`](https://github.com/electron/electron/pull/50659) subclass for Electron's Prompt API, powered by [node-llama-cpp](https://github.com/withcatai/node-llama-cpp). Load any GGUF model and serve it to renderers via the standard `LanguageModel` web API.
 
-It aims for an API surface similar to Chromium's `window.AI` API, except that you can supply any GGUF model. Under the hood, `@electron/llm` makes use of [node-llama-cpp](https://github.com/withcatai/node-llama-cpp). Our goal is to make use of native LLM capabilities in Electron _easier_ than if you consumed a Llama.cpp implementation directly - but not more feature-rich. Today, this module provides a reference implementation of `node-llama-cpp` that loads the model in a utility process and uses Chromium Mojo IPC pipes to efficiently facilitate streaming of responses between the utility process and renderers. If you're building an advanced app with LLM, you might want to use this module as a reference for your process architecture.
+> **This module requires Electron with Prompt API support** (see [electron/electron#50659](https://github.com/electron/electron/pull/50659)).
 
-`@electron/llm` is an experimental package. The Electron maintainers are exploring different ways to support and enable developers interested in running language models locally - and this package is just one of the potential avenues we're exploring. It's possible that we'll go in a different direction. Before using this package in a production app, be aware that you might have to migrate to something else!
+## How It Works
 
-# Quick Start
+Electron's Prompt API lets web content call `LanguageModel.create()` and `model.prompt()` just like in Chrome. Your Electron app decides what model handles the request by running a `UtilityProcess` that registers a `LanguageModel` subclass via `localAIHandler.setPromptAPIHandler()`.
 
-## Installing the module, getting a model
+`@electron/llm` provides `LlamaCppLanguageModel` — a ready-made `LanguageModel` subclass that wires up `node-llama-cpp` so you don't have to write the boilerplate yourself. Subclass it, set `modelPath`, and you're done.
 
-First, install the module in your Electron app:
+Import model classes and helpers from `@electron/llm/utility` (for use inside a `UtilityProcess`).
 
+## Install
+
+```sh
+npm install @electron/llm
 ```
-npm i --save @electron/llm
-```
 
-Then, you need to load a model. The AI space seems to move at the speed of light, [so pick whichever GGUF model suits your purposes best](https://huggingface.co/models?library=gguf). If you just want to work with a small chat model that works well, we recommend `Meta-Llama-3-8B-Instruct.Q4_K_M.gguf`, which you can download [here](https://huggingface.co/MaziyarPanahi/Meta-Llama-3-8B-Instruct-GGUF/tree/main). Put this file in a path reachable by your app.
+## Quick Start
 
-## Loading `@electron/llm`
+### 1. Create the utility process script
 
-Then, in your `main` process, load the module. Make sure to do _before_ you load any windows to make sure that the `window.electronAi` API
-is available.
+```js
+// ai-handler.js (runs in a UtilityProcess)
+import { LlamaCppDownloadingLanguageModel, waitForMessage } from '@electron/llm/utility';
+import { localAIHandler } from 'electron/utility';
+import path from 'node:path';
 
-```ts:main.js
-import { app } from "electron"
-import { loadElectronLlm } from "@electron/llm"
+const { options } = await waitForMessage((msg) => msg.type === 'init');
 
-app.on("ready", () => {
-  await loadElectronLlm()
-  await createBrowserWindow()
-})
-
-async function createBrowserWindow() {
-  // ...
+class MyModel extends LlamaCppDownloadingLanguageModel {
+  static modelUrl = 'https://huggingface.co/user/repo/resolve/main/model.gguf';
+  static modelPath = path.join(options.userDataPath, 'model.gguf');
 }
+
+localAIHandler.setPromptAPIHandler(() => MyModel);
 ```
 
-## Chatting with the model
+### 2. Register it in the main process
 
-You can now use this module in any renderer. By default, `@electron/llm` auto-injects a preload script that exposes `window.electronAi`.
+```js
+// main.js
+import { app, BrowserWindow, utilityProcess, session } from 'electron';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+app.whenReady().then(() => {
+  const child = utilityProcess.fork(path.join(__dirname, 'ai-handler.js'));
+  child.postMessage({ type: 'init', options: { userDataPath: app.getPath('userData') } });
+
+  const win = new BrowserWindow({
+    webPreferences: {
+      enableBlinkFeatures: 'AIPromptAPI',
+    },
+  });
+
+  session.defaultSession.registerLocalAIHandler(child);
+  win.loadFile('index.html');
+});
 ```
-// First, load the model
-await window.electronAi.create({
-  modelAlias: "Meta-Llama-3-8B-Instruct.Q4_K_M.gguf"
-})
 
-// Then, talk to it
-const response = await window.electronAi.prompt("Hi! How are you doing today?")
+### 3. Use the Prompt API in your renderer
+
+```html
+<script>
+  async function askAI() {
+    const model = await LanguageModel.create();
+    const response = await model.prompt('What is Electron?');
+    document.getElementById('response').textContent = response;
+  }
+</script>
+<button onclick="askAI()">Ask AI</button>
+<p id="response"></p>
 ```
 
 ## API
 
-### Main Process API
+### `@electron/llm/utility`
 
-#### `loadElectronLlm(options?: LoadOptions): Promise<void>`
+#### `waitForMessage(predicate): Promise<T>`
 
-Loads the LLM module in the main process.
+Waits for a message on `process.parentPort` that satisfies the predicate. Returns the `data` of the first matching message; non-matching messages are ignored and the listener is removed after a match.
 
-- `options`: Optional configuration
-  - `isAutomaticPreloadDisabled`: If true, the automatic preload script injection is disabled
-  - `getModelPath`: A function that takes a model alias and returns the full path to the GGUF model file. By default, this function returns a path in the app's userData directory: `path.join(app.getPath('userData'), 'models', modelAlias)`. You can override this to customize where models are stored.
-
-### Renderer Process API
-
-The renderer process API is exposed via `window.electronAi` once loaded via preload and provides the following methods:
-
-#### `create(options: LanguageModelCreateOptions): Promise<void>`
-
-Creates and initializes a language model instance. This module will at most create one utility process with one model loaded. If you call `create` multiple times, it will return the existing instance. If you call it with new (not deep equal) options, it will stop and unload previously loaded models and load the model defined in the new options.
-
-- `options`: Configuration for the language model
-  - `modelAlias`: Name of the model you want to load. Will be passed to `getModelPath()`.
-  - `systemPrompt`: Optional system prompt to initialize the model
-  - `initialPrompts`: Optional array of initial prompts to provide context
-  - `topK`: Optional parameter to control diversity of generated text. 10 by default.
-  - `temperature`: Optional parameter to control randomness of generated text. 0.7 by default.
-  - `requestUUID`: Optional UUID to cancel the model loading using 
-
-#### `destroy(): Promise<void>`
-
-Destroys the current language model instance and frees resources.
-
-#### `prompt(input: string, options?: LanguageModelPromptOptions): Promise<string>`
-
-Sends a prompt to the model and returns the complete response as a string.
-
-- `input`: The prompt text to send to the model
-- `options`: Optional configuration for the prompt
-  - `responseJSONSchema`: Optional JSON schema to format the response as structured data
-  - `signal`: Optional AbortSignal to cancel the request
-  - `timeout`: Optional timeout in milliseconds (defaults to 20000ms)
-  - `requestUUID`: Optional UUID to cancel the model loading using 
-- Returns: A promise that resolves to the model's response
-
-#### `promptStreaming(input: string, options?: LanguageModelPromptOptions): Promise<AsyncIterableIterator<string>>`
-
-Sends a prompt to the model and returns the response as a stream of text chunks.
-
-- `input`: The prompt text to send to the model
-- `options`: Optional configuration for the prompt
-  - `responseJSONSchema`: Optional JSON schema to format the response as structured data
-  - `signal`: Optional AbortSignal to cancel the request
-  - `timeout`: Optional timeout in milliseconds (defaults to 20000ms)
-  - `requestUUID`: Optional UUID to cancel the model loading using 
-- Returns: A promise that resolves to an async iterator of response chunks
-
-#### `abortRequest(requestUUID: string): Promise<void>`
-
-Allows the abortion of a currently running model load or prompting request. To use this API, make sure to pass in `requestUUID` to your
-requests.
-
-# Testing
-
-Tests are implemented using [Vitest](https://vitest.dev/). To run the tests, use the following commands:
-
-```bash
-# Run tests once
-npm test
-
-# Run tests in watch mode (useful during development)
-npm run test:watch
-
-# Run tests with coverage report
-npm run test:coverage
+```js
+import { waitForMessage } from '@electron/llm/utility';
+const message = await waitForMessage((msg) => msg.type === 'init');
 ```
 
-For more details, see [\_\_tests\_\_/README.md](\_\_tests\_\_/README.md).
+#### `LlamaCppLanguageModel`
+
+A `LanguageModel` subclass that uses `node-llama-cpp` to run GGUF models locally.
+
+##### `static modelPath: string | null`
+
+Path to the GGUF model file. Must be set before the model can be created. Set this in your subclass:
+
+```js
+class MyModel extends LlamaCppLanguageModel {
+  static modelPath = '/absolute/path/to/model.gguf';
+}
+```
+
+#### `LlamaCppDownloadingLanguageModel`
+
+A subclass of `LlamaCppLanguageModel` that automatically downloads a GGUF model from a URL before creating a session. If the model file already exists on disk, the download is skipped.
+
+##### `static modelUrl: string | null`
+
+The URL to download the GGUF model from. Must be set before the model can be created.
+
+##### `static modelPath: string | null`
+
+Where to save the downloaded model. Must be set explicitly — use `waitForMessage` to receive the app's `userData` path from the main process and build a path:
+
+```js
+import { LlamaCppDownloadingLanguageModel, waitForMessage } from '@electron/llm/utility';
+import path from 'node:path';
+
+const { options } = await waitForMessage((msg) => msg.type === 'init');
+
+class MyModel extends LlamaCppDownloadingLanguageModel {
+  static modelUrl = 'https://huggingface.co/user/repo/resolve/main/phi-3.gguf';
+  static modelPath = path.join(options.userDataPath, 'phi-3.gguf');
+}
+```
+
+## Testing
+
+```sh
+npm test              # run tests once
+npm run test:watch    # watch mode
+npm run test:coverage # with coverage
+```
