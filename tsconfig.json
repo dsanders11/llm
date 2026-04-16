@@ -13,6 +13,6 @@
     "skipLibCheck": true,
     "lib": ["ES2021", "DOM"],
   },
-  "include": ["src"],
+  "include": ["src", "gen"],
   "exclude": ["node_modules", "dist"]
 }
