@@ -4,10 +4,8 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import {
-  LlamaCppLanguageModel,
-  type LanguageModelCreateOptions,
-} from './llama-cpp-language-model.js';
+import { LlamaCppLanguageModel } from './llama-cpp-language-model.js';
+import type { LanguageModelCreateOptions } from './types.js';
 
 /**
  * A downloading variant of {@link LlamaCppLanguageModel} that automatically
