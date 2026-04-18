@@ -25,6 +25,10 @@ coverage
 
 .npmrc
 
+# Native addon build artifacts
+build/
+native/apple-intelligence/build_swift/
+
 # Spec hash calculation
 spec/.hash
 

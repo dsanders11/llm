@@ -10,6 +10,8 @@
   ],
   "files": [
     "dist",
+    "native",
+    "binding.gyp",
     "README.md"
   ],
   "publishConfig": {
@@ -28,6 +30,10 @@
       "types": "./dist/src/windows-ai-language-model.d.ts",
       "default": "./dist/src/windows-ai-language-model.js"
     },
+    "./utility/macos": {
+      "types": "./dist/src/apple-intelligence-language-model.d.ts",
+      "default": "./dist/src/apple-intelligence-language-model.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -38,6 +44,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "prepack": "npm run tsc",
+    "install": "node-gyp rebuild || exit 0",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -63,6 +70,7 @@
   },
   "dependencies": {
     "dynwinrt-js": "^0.1.6",
+    "node-addon-api": "^8.3.0",
     "node-llama-cpp": "^3.7.0"
   },
   "devDependencies": {
