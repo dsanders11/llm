@@ -57,6 +57,7 @@ __metadata:
     electron: "npm:^39.8.4"
     husky: "npm:^9.1.7"
     lint-staged: "npm:^16.4.0"
+    node-addon-api: "npm:^8.3.0"
     node-llama-cpp: "npm:^3.7.0"
     prettier: "npm:^3.5.2"
     typescript: "npm:^5.7.3"
@@ -2557,7 +2558,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"node-addon-api@npm:^8.6.0":
+"node-addon-api@npm:^8.3.0, node-addon-api@npm:^8.6.0":
   version: 8.7.0
   resolution: "node-addon-api@npm:8.7.0"
   dependencies:
