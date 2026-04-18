@@ -223,7 +223,7 @@ export class AppleIntelligenceLanguageModel extends LanguageModel {
 
     options.signal.throwIfAborted();
 
-    const text = this._buildPrompt(input);
+    const text = input.map((m) => extractTextContent(m)).join('\n');
     return new Promise<number>((resolve, reject) => {
       this._session!.countTokens(
         text,
