@@ -1,6 +1,7 @@
 import { ReadableStream } from 'node:stream/web';
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 // @ts-expect-error - not merged yet
 import { LanguageModel } from 'electron/utility';
@@ -48,15 +49,15 @@ let _native: NativeAddon | undefined;
 function getNative(): NativeAddon {
   if (!_native) {
     const require = createRequire(import.meta.url);
-    _native = require(
-      join(
-        import.meta.dirname,
-        '..',
-        'build',
-        'Release',
-        'apple_intelligence.node',
-      ),
-    );
+    // Walk up from this file to the package root (works whether running from
+    // src/ during development or dist/src/ in the published package).
+    let dir = import.meta.dirname;
+    while (!existsSync(join(dir, 'package.json'))) {
+      const parent = dirname(dir);
+      if (parent === dir) throw new Error('Could not find package root');
+      dir = parent;
+    }
+    _native = require(join(dir, 'build', 'Release', 'apple_intelligence.node'));
   }
   return _native!;
 }
