@@ -180,6 +180,7 @@ export class AppleIntelligenceLanguageModel extends LanguageModel {
                     content: [{ type: 'text', value: fullResponse }],
                   });
                 }
+                this._updateContextUsage();
                 controller.close();
               }
             },
@@ -207,6 +208,7 @@ export class AppleIntelligenceLanguageModel extends LanguageModel {
     // appended messages locally and prepend them in _buildPrompt, matching
     // the WindowsAILanguageModel approach.
     this._history.push(...input);
+    this._updateContextUsage();
 
     return undefined;
   }
@@ -267,6 +269,18 @@ export class AppleIntelligenceLanguageModel extends LanguageModel {
       this._session.destroy();
     }
     this._session = null;
+  }
+
+  private _updateContextUsage(): void {
+    if (this._session) {
+      const text = this._buildPrompt([]);
+      this._session.countTokens(text, (error, count) => {
+        if (!error) {
+          // @ts-expect-error - not merged yet
+          this.contextUsage = count;
+        }
+      });
+    }
   }
 
   private _buildPrompt(input: LanguageModelMessage[]): string {
