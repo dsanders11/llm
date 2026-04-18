@@ -274,7 +274,7 @@ import FoundationModels
                 try Task.checkCancellation()
                 let model = SystemLanguageModel.default
                 if #available(macOS 26.4, *) {
-                    let count = try await model.tokenCount(for: Instructions(text))
+                    let count = try await model.tokenCount(for: Prompt(text))
                     try Task.checkCancellation()
                     completion(count, nil)
                 } else {
