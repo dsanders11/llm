@@ -3,11 +3,11 @@ import { ReadableStream } from 'node:stream/web';
 // @ts-expect-error - not merged yet
 import { LanguageModel } from 'electron/utility';
 
-import {
-  LanguageModel as WindowsLanguageModel,
-  LanguageModelOptions as WindowsLanguageModelOptions,
-  AIFeatureReadyState,
-} from '../gen/windows-ai/index.js';
+import { LanguageModel as WindowsLanguageModel } from '../gen/windows-ai/LanguageModel.js';
+import { LanguageModelOptions as WindowsLanguageModelOptions } from '../gen/windows-ai/LanguageModelOptions.js';
+import { LanguageModelContext } from '../gen/windows-ai/LanguageModelContext.js';
+import { LanguageModelResponseStatus } from '../gen/windows-ai/LanguageModelResponseStatus.js';
+import { AIFeatureReadyState } from '../gen/windows-ai/AIFeatureReadyState.js';
 
 import type {
   LanguageModelCreateOptions,
@@ -33,9 +33,11 @@ import type {
  * ```
  */
 export class WindowsAILanguageModel extends LanguageModel {
-  private _windowsModel: any = null;
+  private _windowsModel: WindowsLanguageModel | null = null;
+  private _context: LanguageModelContext | null = null;
   private _systemPrompt: string | undefined;
   private _history: LanguageModelMessage[] = [];
+  private _contextMessageCount = 0;
   private _initialPrompts: LanguageModelMessage[] | undefined;
   private _ownsModel = true;
 
@@ -49,15 +51,7 @@ export class WindowsAILanguageModel extends LanguageModel {
     const { signal } = options;
     signal.throwIfAborted();
 
-    const windowsModel = await WindowsLanguageModel.createAsync();
-    signal.throwIfAborted();
-
-    if (!windowsModel) {
-      throw new Error(
-        'Failed to create Windows AI Language Model. ' +
-          'Ensure your device supports Windows AI (Copilot+ PC required).',
-      );
-    }
+    const windowsModel = await WindowsLanguageModel.createAsync(signal);
 
     const initialPrompts = options.initialPrompts ?? [];
 
@@ -68,16 +62,32 @@ export class WindowsAILanguageModel extends LanguageModel {
         ? systemMessages.map((m) => extractTextContent(m)).join('\n')
         : undefined;
 
+    // Create a context window with the system prompt so the model
+    // can track conversation history across generateResponseAsync calls.
+    const context = systemPrompt
+      ? windowsModel.createContext(systemPrompt)
+      : windowsModel.createContext();
+
+    // Estimate context window size by checking how much of a large string
+    // the model can accept in a fresh context.
+    const emptyContext = windowsModel.createContext();
+    const probeLength = Number(
+      windowsModel.getUsablePromptLength(emptyContext, 'a'.repeat(1_000_000)),
+    );
+    emptyContext.close();
+
     const instance = new this({
       contextUsage: 0,
-      contextWindow: 8192, // TODO - How to get context window size?
+      contextWindow: Math.ceil(probeLength / 4),
     });
 
     instance._windowsModel = windowsModel;
+    instance._context = context;
     instance._systemPrompt = systemPrompt;
     instance._initialPrompts = initialPrompts;
 
-    // Add non-system initial prompts as conversation history
+    // Non-system initial prompts are queued as history; _contextMessageCount
+    // starts at 0 so they'll be included in the first prompt call.
     instance._history = initialPrompts
       .filter((m) => m.role !== 'system')
       .slice();
@@ -101,51 +111,43 @@ export class WindowsAILanguageModel extends LanguageModel {
     input: LanguageModelMessage[],
     options: LanguageModelPromptOptions,
   ): Promise<ReadableStream<string>> {
-    if (!this._windowsModel) {
+    if (!this._windowsModel || !this._context) {
       throw new Error('Model is not initialized');
     }
 
     options.signal.throwIfAborted();
 
-    // Build full prompt including system prompt, history, and new input
-    const promptText = this._buildPrompt(input);
+    // Build prompt from messages the context hasn't seen yet + new input.
+    const pendingMessages = this._history.slice(this._contextMessageCount);
+    const allMessages = [...pendingMessages, ...input];
+    const promptText = allMessages.map((m) => extractTextContent(m)).join('\n');
     const windowsModel = this._windowsModel;
+    const context = this._context;
 
     return new ReadableStream<string>({
       start: async (controller) => {
         try {
           const modelOptions = WindowsLanguageModelOptions.create();
 
-          // generateResponseAsync2 is the (String, LanguageModelOptions)
-          // overload of the WinRT GenerateResponseAsync API
-          const op = windowsModel.generateResponseAsync2(
+          const op = windowsModel.generateResponseAsync(
+            context,
             promptText,
             modelOptions,
+            options.signal,
           );
 
           // Register progress handler for streaming tokens
-          op.progress((progressText: unknown) => {
-            const chunk =
-              typeof progressText === 'string'
-                ? progressText
-                : String(progressText);
-            if (chunk) {
-              controller.enqueue(chunk);
-            }
+          op.progress((progressText: string) => {
+            controller.enqueue(progressText);
           });
 
-          // Handle abort signal
-          const onAbort = () => {
-            try {
-              op.cancel();
-            } catch {
-              // Ignore cancel errors
-            }
-          };
-          options.signal.addEventListener('abort', onAbort, { once: true });
-
           const result = await op;
-          options.signal.removeEventListener('abort', onAbort);
+
+          if (result.status !== LanguageModelResponseStatus.Complete) {
+            throw new Error(
+              `Language model response failed (status ${result.status})`,
+            );
+          }
 
           // Track the exchange in conversation history
           this._history.push(...input);
@@ -153,6 +155,9 @@ export class WindowsAILanguageModel extends LanguageModel {
             role: 'assistant',
             content: [{ type: 'text', value: result.text }],
           });
+
+          // All history (including new input) has been consumed by the context
+          this._contextMessageCount = this._history.length;
 
           controller.close();
         } catch (error) {
@@ -172,7 +177,8 @@ export class WindowsAILanguageModel extends LanguageModel {
 
     options.signal.throwIfAborted();
 
-    // Queue messages to be included in the next prompt call
+    // Queue messages to be included in the next prompt call.
+    // _contextMessageCount stays the same, so these will be pending.
     this._history.push(...input);
 
     return undefined;
@@ -182,17 +188,24 @@ export class WindowsAILanguageModel extends LanguageModel {
     input: LanguageModelMessage[],
     options: LanguageModelPromptOptions,
   ): Promise<number> {
-    if (!this._windowsModel) {
+    if (!this._windowsModel || !this._context) {
       throw new Error('Model is not initialized');
     }
 
     options.signal.throwIfAborted();
 
-    const text = this._buildPrompt(input);
+    const text = input.map((m) => extractTextContent(m)).join('\n');
 
-    // Rough estimate: ~4 characters per token for English text
-    // TODO - Don't estimate, find a way to get actual token count from the Windows model if possible
-    return Math.ceil(text.length / 4);
+    // Measure against an empty context so we get the token cost of
+    // just the input, independent of current conversation state.
+    const emptyContext = this._windowsModel.createContext();
+    const usableLength = Number(
+      this._windowsModel.getUsablePromptLength(emptyContext, text),
+    );
+    emptyContext.close();
+
+    const effectiveLength = Math.min(text.length, usableLength);
+    return Math.ceil(effectiveLength / 4);
   }
 
   async clone(options: LanguageModelCloneOptions): Promise<LanguageModel> {
@@ -216,10 +229,24 @@ export class WindowsAILanguageModel extends LanguageModel {
     cloned._initialPrompts = this._initialPrompts;
     cloned._history = [...this._history];
 
+    // Create a fresh context for the clone — _contextMessageCount starts
+    // at 0 so the full history is replayed on the next prompt call.
+    cloned._context = cloned._systemPrompt
+      ? this._windowsModel.createContext(cloned._systemPrompt)
+      : this._windowsModel.createContext();
+
     return cloned;
   }
 
   destroy(): void {
+    try {
+      this._context?.close();
+    } catch {
+      // Ignore close errors
+    } finally {
+      this._context = null;
+    }
+
     if (this._ownsModel && this._windowsModel) {
       try {
         this._windowsModel.close();
@@ -228,21 +255,6 @@ export class WindowsAILanguageModel extends LanguageModel {
       }
     }
     this._windowsModel = null;
-  }
-
-  private _buildPrompt(input: LanguageModelMessage[]): string {
-    const parts: string[] = [];
-
-    if (this._systemPrompt) {
-      parts.push(this._systemPrompt);
-    }
-
-    // Include conversation history and new input
-    for (const msg of [...this._history, ...input]) {
-      parts.push(extractTextContent(msg));
-    }
-
-    return parts.join('\n');
   }
 }
 
