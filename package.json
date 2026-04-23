@@ -3,13 +3,14 @@
   "version": "0.0.0-development",
   "description": "A LanguageModel subclass for the Electron Prompt API powered by node-llama-cpp.",
   "type": "module",
-  "main": "dist/src/index.js",
-  "types": "dist/src/index.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "workspaces": [
     "end-to-end"
   ],
   "files": [
     "dist",
+    "gen",
     "native",
     "binding.gyp",
     "README.md"
@@ -19,20 +20,20 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/src/index.d.ts",
-      "default": "./dist/src/index.js"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./utility": {
-      "types": "./dist/src/utility.d.ts",
-      "default": "./dist/src/utility.js"
+      "types": "./dist/utility.d.ts",
+      "default": "./dist/utility.js"
     },
     "./utility/windows": {
-      "types": "./dist/src/windows-ai-language-model.d.ts",
-      "default": "./dist/src/windows-ai-language-model.js"
+      "types": "./dist/windows-ai-language-model.d.ts",
+      "default": "./dist/windows-ai-language-model.js"
     },
     "./utility/macos": {
-      "types": "./dist/src/apple-intelligence-language-model.d.ts",
-      "default": "./dist/src/apple-intelligence-language-model.js"
+      "types": "./dist/apple-intelligence-language-model.d.ts",
+      "default": "./dist/apple-intelligence-language-model.js"
     },
     "./package.json": "./package.json"
   },

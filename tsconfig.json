@@ -5,6 +5,7 @@
     "moduleResolution": "nodenext",
     "sourceMap": true,
     "outDir": "dist",
+    "rootDir": "src",
     "types": ["node", "electron"],
     "declaration": true,
     "declarationMap": true,
@@ -13,6 +14,6 @@
     "skipLibCheck": true,
     "lib": ["ES2021", "DOM"],
   },
-  "include": ["src", "gen"],
+  "include": ["src"],
   "exclude": ["node_modules", "dist"]
 }
