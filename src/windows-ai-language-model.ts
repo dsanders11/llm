@@ -3,11 +3,15 @@ import { ReadableStream } from 'node:stream/web';
 // @ts-expect-error - not merged yet
 import { LanguageModel } from 'electron/utility';
 
+import { roInitialize } from 'dynwinrt-js';
+
 import { LanguageModel as WindowsLanguageModel } from '../gen/windows-ai/LanguageModel.js';
 import { LanguageModelOptions as WindowsLanguageModelOptions } from '../gen/windows-ai/LanguageModelOptions.js';
 import { LanguageModelContext } from '../gen/windows-ai/LanguageModelContext.js';
 import { LanguageModelResponseStatus } from '../gen/windows-ai/LanguageModelResponseStatus.js';
 import { AIFeatureReadyState } from '../gen/windows-ai/AIFeatureReadyState.js';
+import { LimitedAccessFeatures } from '../gen/windows-ai/LimitedAccessFeatures.js';
+import { LimitedAccessFeatureStatus } from '../gen/windows-ai/LimitedAccessFeatureStatus.js';
 
 import type {
   LanguageModelCreateOptions,
@@ -17,6 +21,62 @@ import type {
   LanguageModelMessage,
 } from './types.js';
 
+const LANGUAGE_MODEL_FEATURE_ID = 'com.microsoft.windows.ai.languagemodel';
+
+let _roInitialized = false;
+let _featureUnlocked = false;
+
+/**
+ * `roInitialize` must be called once per thread before using any WinRT
+ * APIs. When this module is loaded in an Electron utility process, that
+ * initialization hasn't happened yet, so we do it lazily the first time
+ * a static method that touches WinRT is called.
+ */
+function ensureRoInitialized(): void {
+  if (_roInitialized) return;
+  roInitialize();
+  _roInitialized = true;
+}
+
+/**
+ * The Windows AI language model is gated behind a Limited Access Feature
+ * and must be unlocked with a per-app token before it can be used. The
+ * token is supplied by the caller (typically via a subclass `lafToken`
+ * field) and the unlock is attempted once per process.
+ */
+function ensureFeatureUnlocked(token: string | null): void {
+  if (_featureUnlocked) return;
+
+  if (!token) {
+    throw new Error(
+      `lafToken must be set before using WindowsAILanguageModel; cannot ` +
+        `unlock Limited Access Feature "${LANGUAGE_MODEL_FEATURE_ID}".`,
+    );
+  }
+
+  const attestation =
+    `This app has registered their use of ` +
+    `${LANGUAGE_MODEL_FEATURE_ID} with Microsoft and agrees to the terms of use.`;
+
+  const result = LimitedAccessFeatures.tryUnlockFeature(
+    LANGUAGE_MODEL_FEATURE_ID,
+    token,
+    attestation,
+  );
+
+  if (
+    result.status !== LimitedAccessFeatureStatus.Available &&
+    result.status !== LimitedAccessFeatureStatus.AvailableWithoutToken
+  ) {
+    throw new Error(
+      `Failed to unlock Limited Access Feature "${LANGUAGE_MODEL_FEATURE_ID}" ` +
+        `(status ${result.status}).`,
+    );
+  }
+
+  _featureUnlocked = true;
+}
+
 /**
  * A `LanguageModel` subclass backed by the Windows AI
  * `Microsoft.Windows.AI.Text.LanguageModel` API (Phi Silica / NPU).
@@ -24,15 +84,31 @@ import type {
  * This class wraps the local on-device language model available on
  * Windows Copilot+ PCs and exposes it through the Electron Prompt API.
  *
+ * Subclass this and set `lafToken` to the Limited Access Feature token
+ * Microsoft issued for your app, then register it with
+ * `localAIHandler.setPromptAPIHandler`.
+ *
  * @example
  * ```js
  * import { WindowsAILanguageModel } from '@electron/llm';
  * import { localAIHandler } from 'electron/utility';
  *
- * localAIHandler.setPromptAPIHandler(() => WindowsAILanguageModel);
+ * class MyModel extends WindowsAILanguageModel {
+ *   static lafToken = 'your-laf-token-here';
+ * }
+ *
+ * localAIHandler.setPromptAPIHandler(() => MyModel);
  * ```
  */
 export class WindowsAILanguageModel extends LanguageModel {
+  /**
+   * Limited Access Feature token used to unlock the Windows AI language
+   * model. Obtain a token for your app from Microsoft and assign it to
+   * this static field on a subclass before calling `create` or
+   * `availability`.
+   */
+  static lafToken: string | null = null;
+
   private _windowsModel: WindowsLanguageModel | null = null;
   private _context: LanguageModelContext | null = null;
   private _systemPrompt: string | undefined;
@@ -50,6 +126,9 @@ export class WindowsAILanguageModel extends LanguageModel {
   ): Promise<LanguageModel> {
     const { signal } = options;
     signal.throwIfAborted();
+
+    ensureRoInitialized();
+    ensureFeatureUnlocked(this.lafToken);
 
     const windowsModel = await WindowsLanguageModel.createAsync(signal);
 
@@ -97,12 +176,15 @@ export class WindowsAILanguageModel extends LanguageModel {
 
   static async availability(): Promise<string> {
     try {
+      ensureRoInitialized();
+      ensureFeatureUnlocked(this.lafToken);
       const state = WindowsLanguageModel.getReadyState();
       if (state === AIFeatureReadyState.Ready) {
         return 'available';
       }
       return 'unavailable';
-    } catch {
+    } catch (err) {
+      console.error(err);
       return 'unavailable';
     }
   }
@@ -158,6 +240,7 @@ export class WindowsAILanguageModel extends LanguageModel {
 
           // All history (including new input) has been consumed by the context
           this._contextMessageCount = this._history.length;
+          this._updateContextUsage();
 
           controller.close();
         } catch (error) {
@@ -180,6 +263,7 @@ export class WindowsAILanguageModel extends LanguageModel {
     // Queue messages to be included in the next prompt call.
     // _contextMessageCount stays the same, so these will be pending.
     this._history.push(...input);
+    this._updateContextUsage();
 
     return undefined;
   }
@@ -236,6 +320,20 @@ export class WindowsAILanguageModel extends LanguageModel {
       : this._windowsModel.createContext();
 
     return cloned;
+  }
+
+  private _updateContextUsage(): void {
+    if (this._windowsModel && this._context) {
+      const text = this._history.map((m) => extractTextContent(m)).join('\n');
+      const emptyContext = this._windowsModel.createContext();
+      const usableLength = Number(
+        this._windowsModel.getUsablePromptLength(emptyContext, text),
+      );
+      emptyContext.close();
+      const effectiveLength = Math.min(text.length, usableLength);
+      // @ts-expect-error - not merged yet
+      this.contextUsage = Math.ceil(effectiveLength / 4);
+    }
   }
 
   destroy(): void {
