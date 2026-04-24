@@ -44,7 +44,10 @@ function ensureRoInitialized(): void {
  * token is supplied by the caller (typically via a subclass `lafToken`
  * field) and the unlock is attempted once per process.
  */
-function ensureFeatureUnlocked(token: string | null): void {
+function ensureFeatureUnlocked(
+  token: string | null,
+  attestation: string | null,
+): void {
   if (_featureUnlocked) return;
 
   if (!token) {
@@ -54,9 +57,12 @@ function ensureFeatureUnlocked(token: string | null): void {
     );
   }
 
-  const attestation =
-    `This app has registered their use of ` +
-    `${LANGUAGE_MODEL_FEATURE_ID} with Microsoft and agrees to the terms of use.`;
+  if (!attestation) {
+    throw new Error(
+      `attestation must be set before using WindowsAILanguageModel; cannot ` +
+        `unlock Limited Access Feature "${LANGUAGE_MODEL_FEATURE_ID}".`,
+    );
+  }
 
   const result = LimitedAccessFeatures.tryUnlockFeature(
     LANGUAGE_MODEL_FEATURE_ID,
@@ -84,7 +90,7 @@ function ensureFeatureUnlocked(token: string | null): void {
  * This class wraps the local on-device language model available on
  * Windows Copilot+ PCs and exposes it through the Electron Prompt API.
  *
- * Subclass this and set `lafToken` to the Limited Access Feature token
+ * Subclass this and set `lafToken` and `attestation` to the values
  * Microsoft issued for your app, then register it with
  * `localAIHandler.setPromptAPIHandler`.
  *
@@ -95,6 +101,7 @@ function ensureFeatureUnlocked(token: string | null): void {
  *
  * class MyModel extends WindowsAILanguageModel {
  *   static lafToken = 'your-laf-token-here';
+ *   static attestation = 'your-attestation-statement-here';
  * }
  *
  * localAIHandler.setPromptAPIHandler(() => MyModel);
@@ -108,6 +115,13 @@ export class WindowsAILanguageModel extends LanguageModel {
    * `availability`.
    */
   static lafToken: string | null = null;
+
+  /**
+   * Attestation statement required to unlock the Windows AI language
+   * model Limited Access Feature. Assign this on a subclass alongside
+   * `lafToken`.
+   */
+  static attestation: string | null = null;
 
   private _windowsModel: WindowsLanguageModel | null = null;
   private _context: LanguageModelContext | null = null;
@@ -128,56 +142,73 @@ export class WindowsAILanguageModel extends LanguageModel {
     signal.throwIfAborted();
 
     ensureRoInitialized();
-    ensureFeatureUnlocked(this.lafToken);
+    ensureFeatureUnlocked(this.lafToken, this.attestation);
 
     const windowsModel = await WindowsLanguageModel.createAsync(signal);
+    let context: LanguageModelContext | undefined;
 
-    const initialPrompts = options.initialPrompts ?? [];
+    try {
+      signal.throwIfAborted();
 
-    // Extract system prompt from initial prompts
-    const systemMessages = initialPrompts.filter((m) => m.role === 'system');
-    const systemPrompt =
-      systemMessages.length > 0
-        ? systemMessages.map((m) => extractTextContent(m)).join('\n')
-        : undefined;
+      const initialPrompts = options.initialPrompts ?? [];
 
-    // Create a context window with the system prompt so the model
-    // can track conversation history across generateResponseAsync calls.
-    const context = systemPrompt
-      ? windowsModel.createContext(systemPrompt)
-      : windowsModel.createContext();
+      // Extract system prompt from initial prompts
+      const systemMessages = initialPrompts.filter((m) => m.role === 'system');
+      const systemPrompt =
+        systemMessages.length > 0
+          ? systemMessages.map((m) => extractTextContent(m)).join('\n')
+          : undefined;
 
-    // Estimate context window size by checking how much of a large string
-    // the model can accept in a fresh context.
-    const emptyContext = windowsModel.createContext();
-    const probeLength = Number(
-      windowsModel.getUsablePromptLength(emptyContext, 'a'.repeat(1_000_000)),
-    );
-    emptyContext.close();
+      // Create a context window with the system prompt so the model
+      // can track conversation history across generateResponseAsync calls.
+      context = systemPrompt
+        ? windowsModel.createContext(systemPrompt)
+        : windowsModel.createContext();
 
-    const instance = new this({
-      contextUsage: 0,
-      contextWindow: Math.ceil(probeLength / 4),
-    });
+      signal.throwIfAborted();
 
-    instance._windowsModel = windowsModel;
-    instance._context = context;
-    instance._systemPrompt = systemPrompt;
-    instance._initialPrompts = initialPrompts;
+      // Estimate context window size by checking how much of a large string
+      // the model can accept in a fresh context.
+      const emptyContext = windowsModel.createContext();
+      try {
+        var probeLength = Number(
+          windowsModel.getUsablePromptLength(
+            emptyContext,
+            'a'.repeat(1_000_000),
+          ),
+        );
+      } finally {
+        emptyContext.close();
+      }
 
-    // Non-system initial prompts are queued as history; _contextMessageCount
-    // starts at 0 so they'll be included in the first prompt call.
-    instance._history = initialPrompts
-      .filter((m) => m.role !== 'system')
-      .slice();
+      const instance = new this({
+        contextUsage: 0,
+        contextWindow: Math.ceil(probeLength / 4),
+      });
 
-    return instance;
+      instance._windowsModel = windowsModel;
+      instance._context = context;
+      instance._systemPrompt = systemPrompt;
+      instance._initialPrompts = initialPrompts;
+
+      // Non-system initial prompts are queued as history; _contextMessageCount
+      // starts at 0 so they'll be included in the first prompt call.
+      instance._history = initialPrompts
+        .filter((m) => m.role !== 'system')
+        .slice();
+
+      return instance;
+    } catch (error) {
+      context?.close();
+      windowsModel.close();
+      throw error;
+    }
   }
 
   static async availability(): Promise<string> {
     try {
       ensureRoInitialized();
-      ensureFeatureUnlocked(this.lafToken);
+      ensureFeatureUnlocked(this.lafToken, this.attestation);
       const state = WindowsLanguageModel.getReadyState();
       if (state === AIFeatureReadyState.Ready) {
         return 'available';
@@ -206,6 +237,8 @@ export class WindowsAILanguageModel extends LanguageModel {
     const windowsModel = this._windowsModel;
     const context = this._context;
 
+    let streamClosed = false;
+
     return new ReadableStream<string>({
       start: async (controller) => {
         try {
@@ -220,7 +253,9 @@ export class WindowsAILanguageModel extends LanguageModel {
 
           // Register progress handler for streaming tokens
           op.progress((progressText: string) => {
-            controller.enqueue(progressText);
+            if (!streamClosed) {
+              controller.enqueue(progressText);
+            }
           });
 
           const result = await op;
@@ -242,9 +277,15 @@ export class WindowsAILanguageModel extends LanguageModel {
           this._contextMessageCount = this._history.length;
           this._updateContextUsage();
 
-          controller.close();
+          if (!streamClosed) {
+            controller.close();
+          }
+          streamClosed = true;
         } catch (error) {
-          controller.error(error);
+          if (!streamClosed) {
+            controller.error(error);
+          }
+          streamClosed = true;
         }
       },
     });
