@@ -1,8 +1,5 @@
 import { ReadableStream } from 'node:stream/web';
 
-// @ts-expect-error - not merged yet
-import { LanguageModel } from 'electron/utility';
-
 import {
   type ChatHistoryItem,
   LlamaChatSession,
@@ -12,6 +9,7 @@ import {
 } from 'node-llama-cpp';
 
 import type {
+  LanguageModel,
   LanguageModelAppendOptions,
   LanguageModelCloneOptions,
   LanguageModelCreateOptions,
@@ -21,11 +19,12 @@ import type {
 } from './types.js';
 
 /**
- * A `LanguageModel` subclass powered by `node-llama-cpp` for use with the
- * Electron Prompt API.
+ * A `LanguageModel` implementation powered by `node-llama-cpp`.
  *
- * Subclass this and set `modelPath` to the path to your GGUF model file,
- * then register it with `localAIHandler.setPromptAPIHandler`.
+ * Subclass this and set `modelPath` to the path to your GGUF model file.
+ *
+ * Import from `@electron/llm/prompt-api` for a Prompt API-compatible
+ * version that extends the Electron `LanguageModel` class.
  *
  * @example
  * ```js
@@ -39,16 +38,19 @@ import type {
  * localAIHandler.setPromptAPIHandler(() => MyModel);
  * ```
  */
-export class LlamaCppLanguageModel extends LanguageModel {
+export class LlamaCppLanguageModel implements LanguageModel {
   static modelPath: string | null = null;
 
+  contextUsage: number;
+  contextWindow: number;
   private _session: LlamaChatSession | null = null;
   private _context: LlamaContext | null = null;
   private _model: LlamaModel | null = null;
   private _initialPrompts: LanguageModelMessage[] | undefined;
 
   constructor(options: { contextUsage: number; contextWindow: number }) {
-    super(options);
+    this.contextUsage = options.contextUsage;
+    this.contextWindow = options.contextWindow;
   }
 
   static async create(
@@ -240,10 +242,8 @@ export class LlamaCppLanguageModel extends LanguageModel {
     const history = this._session.getChatHistory();
     newSession.setChatHistory(history);
 
-    const cloned = new (this.constructor as LanguageModel)({
-      // @ts-expect-error - not merged yet
+    const cloned = new (this.constructor as typeof LlamaCppLanguageModel)({
       contextUsage: this.contextUsage,
-      // @ts-expect-error - not merged yet
       contextWindow: this.contextWindow,
     });
 
@@ -263,7 +263,6 @@ export class LlamaCppLanguageModel extends LanguageModel {
 
   private _updateContextUsage(): void {
     if (this._session) {
-      // @ts-expect-error - not merged yet
       this.contextUsage = this._session.sequence.nextTokenIndex;
     }
   }

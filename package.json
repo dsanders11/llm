@@ -23,17 +23,17 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./utility": {
-      "types": "./dist/utility.d.ts",
-      "default": "./dist/utility.js"
+    "./prompt-api": {
+      "types": "./dist/prompt-api.d.ts",
+      "default": "./dist/prompt-api.js"
     },
-    "./utility/windows": {
-      "types": "./dist/windows-ai-language-model.d.ts",
-      "default": "./dist/windows-ai-language-model.js"
+    "./prompt-api/windows": {
+      "types": "./dist/prompt-api-windows.d.ts",
+      "default": "./dist/prompt-api-windows.js"
     },
-    "./utility/macos": {
-      "types": "./dist/apple-intelligence-language-model.d.ts",
-      "default": "./dist/apple-intelligence-language-model.js"
+    "./prompt-api/macos": {
+      "types": "./dist/prompt-api-macos.d.ts",
+      "default": "./dist/prompt-api-macos.js"
     },
     "./package.json": "./package.json"
   },

@@ -16,7 +16,7 @@ import type { LanguageModelCreateOptions } from './types.js';
  *
  * @example
  * ```js
- * import { LlamaCppDownloadingLanguageModel, waitForMessage } from '@electron/llm/utility';
+ * import { LlamaCppDownloadingLanguageModel, waitForMessage } from '@electron/llm/prompt-api';
  * import { localAIHandler } from 'electron/utility';
  * import path from 'node:path';
  *

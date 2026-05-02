@@ -1,8 +1,5 @@
 import { ReadableStream } from 'node:stream/web';
 
-// @ts-expect-error - not merged yet
-import { LanguageModel } from 'electron/utility';
-
 import { roInitialize } from 'dynwinrt-js';
 
 import { LanguageModel as WindowsLanguageModel } from '../gen/windows-ai/LanguageModel.js';
@@ -14,6 +11,7 @@ import { LimitedAccessFeatures } from '../gen/windows-ai/LimitedAccessFeatures.j
 import { LimitedAccessFeatureStatus } from '../gen/windows-ai/LimitedAccessFeatureStatus.js';
 
 import type {
+  LanguageModel,
   LanguageModelCreateOptions,
   LanguageModelPromptOptions,
   LanguageModelAppendOptions,
@@ -84,11 +82,14 @@ function ensureFeatureUnlocked(
 }
 
 /**
- * A `LanguageModel` subclass backed by the Windows AI
+ * A `LanguageModel` implementation backed by the Windows AI
  * `Microsoft.Windows.AI.Text.LanguageModel` API (Phi Silica / NPU).
  *
  * This class wraps the local on-device language model available on
- * Windows Copilot+ PCs and exposes it through the Electron Prompt API.
+ * Windows Copilot+ PCs.
+ *
+ * Import from `@electron/llm/prompt-api/windows` for a Prompt API-compatible
+ * version that extends the Electron `LanguageModel` class.
  *
  * Subclass this and set `lafToken` and `attestation` to the values
  * Microsoft issued for your app, then register it with
@@ -107,7 +108,7 @@ function ensureFeatureUnlocked(
  * localAIHandler.setPromptAPIHandler(() => MyModel);
  * ```
  */
-export class WindowsAILanguageModel extends LanguageModel {
+export class WindowsAILanguageModel implements LanguageModel {
   /**
    * Limited Access Feature token used to unlock the Windows AI language
    * model. Obtain a token for your app from Microsoft and assign it to
@@ -123,6 +124,8 @@ export class WindowsAILanguageModel extends LanguageModel {
    */
   static attestation: string | null = null;
 
+  contextUsage: number;
+  contextWindow: number;
   private _windowsModel: WindowsLanguageModel | null = null;
   private _context: LanguageModelContext | null = null;
   private _systemPrompt: string | undefined;
@@ -132,7 +135,8 @@ export class WindowsAILanguageModel extends LanguageModel {
   private _ownsModel = true;
 
   constructor(options: { contextUsage: number; contextWindow: number }) {
-    super(options);
+    this.contextUsage = options.contextUsage;
+    this.contextWindow = options.contextWindow;
   }
 
   static async create(
@@ -341,9 +345,7 @@ export class WindowsAILanguageModel extends LanguageModel {
     options.signal.throwIfAborted();
 
     const cloned = new (this.constructor as typeof WindowsAILanguageModel)({
-      // @ts-expect-error - not merged yet
       contextUsage: this.contextUsage,
-      // @ts-expect-error - not merged yet
       contextWindow: this.contextWindow,
     });
 
@@ -372,7 +374,6 @@ export class WindowsAILanguageModel extends LanguageModel {
       );
       emptyContext.close();
       const effectiveLength = Math.min(text.length, usableLength);
-      // @ts-expect-error - not merged yet
       this.contextUsage = Math.ceil(effectiveLength / 4);
     }
   }

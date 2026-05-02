@@ -13,7 +13,7 @@ Electron's Prompt API lets web content call `LanguageModel.create()` and `model.
 
 `@electron/llm` provides `LlamaCppLanguageModel` — a ready-made `LanguageModel` subclass that wires up `node-llama-cpp` so you don't have to write the boilerplate yourself. Subclass it, set `modelPath`, and you're done.
 
-Import model classes and helpers from `@electron/llm/utility` (for use inside a `UtilityProcess`).
+Import model classes and helpers from `@electron/llm/prompt-api` (for use inside a `UtilityProcess`).
 
 ## Install
 
@@ -27,7 +27,7 @@ npm install @electron/llm
 
 ```js
 // ai-handler.js (runs in a UtilityProcess)
-import { LlamaCppDownloadingLanguageModel, waitForMessage } from '@electron/llm/utility';
+import { LlamaCppDownloadingLanguageModel, waitForMessage } from '@electron/llm/prompt-api';
 import { localAIHandler } from 'electron/utility';
 import path from 'node:path';
 
@@ -82,14 +82,14 @@ app.whenReady().then(() => {
 
 ## API
 
-### `@electron/llm/utility`
+### `@electron/llm/prompt-api`
 
 #### `waitForMessage(predicate): Promise<T>`
 
 Waits for a message on `process.parentPort` that satisfies the predicate. Returns the `data` of the first matching message; non-matching messages are ignored and the listener is removed after a match.
 
 ```js
-import { waitForMessage } from '@electron/llm/utility';
+import { waitForMessage } from '@electron/llm/prompt-api';
 const message = await waitForMessage((msg) => msg.type === 'init');
 ```
 
@@ -120,7 +120,7 @@ The URL to download the GGUF model from. Must be set before the model can be cre
 Where to save the downloaded model. Must be set explicitly — use `waitForMessage` to receive the app's `userData` path from the main process and build a path:
 
 ```js
-import { LlamaCppDownloadingLanguageModel, waitForMessage } from '@electron/llm/utility';
+import { LlamaCppDownloadingLanguageModel, waitForMessage } from '@electron/llm/prompt-api';
 import path from 'node:path';
 
 const { options } = await waitForMessage((msg) => msg.type === 'init');

@@ -1,5 +1,16 @@
-export { LlamaCppLanguageModel } from './llama-cpp-language-model.js';
-export { LlamaCppDownloadingLanguageModel } from './llama-cpp-downloading-language-model.js';
+// @ts-expect-error - not merged yet
+import { LanguageModel } from 'electron/utility';
+
+import { LlamaCppLanguageModel } from './llama-cpp-language-model.js';
+import { LlamaCppDownloadingLanguageModel } from './llama-cpp-downloading-language-model.js';
+
+// Set prototype chains so these classes extend LanguageModel for Prompt API
+// compatibility. LlamaCppDownloadingLanguageModel inherits through
+// LlamaCppLanguageModel automatically.
+Object.setPrototypeOf(LlamaCppLanguageModel.prototype, LanguageModel.prototype);
+Object.setPrototypeOf(LlamaCppLanguageModel, LanguageModel);
+
+export { LlamaCppLanguageModel, LlamaCppDownloadingLanguageModel };
 
 /**
  * Wait for a message on the utility process's `parentPort` that matches
@@ -8,7 +19,7 @@ export { LlamaCppDownloadingLanguageModel } from './llama-cpp-downloading-langua
  *
  * @example
  * ```js
- * import { waitForMessage } from '@electron/llm/utility';
+ * import { waitForMessage } from '@electron/llm/prompt-api';
  *
  * const message = await waitForMessage((msg) => msg.type === 'init');
  * console.log(message.options.userDataPath);

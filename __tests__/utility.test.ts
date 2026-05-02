@@ -34,7 +34,7 @@ const mockParentPort = {
 };
 vi.stubGlobal('process', { ...process, parentPort: mockParentPort });
 
-const { waitForMessage } = await import('../src/utility.js');
+const { waitForMessage } = await import('../src/prompt-api.js');
 
 describe('waitForMessage', () => {
   beforeEach(() => {

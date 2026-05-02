@@ -3,10 +3,8 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 
-// @ts-expect-error - not merged yet
-import { LanguageModel } from 'electron/utility';
-
 import type {
+  LanguageModel,
   LanguageModelCreateOptions,
   LanguageModelPromptOptions,
   LanguageModelAppendOptions,
@@ -63,12 +61,15 @@ function getNative(): NativeAddon {
 }
 
 /**
- * A `LanguageModel` subclass backed by Apple Intelligence on macOS 26+.
+ * A `LanguageModel` implementation backed by Apple Intelligence on macOS 26+.
  *
  * Uses Apple's FoundationModels framework (`LanguageModelSession` /
  * `SystemLanguageModel`) via a native Swift addon.  Streaming, abort-signal
  * support, session cloning, and token counting are all wired through to the
  * on-device model.
+ *
+ * Import from `@electron/llm/prompt-api/macos` for a Prompt API-compatible
+ * version that extends the Electron `LanguageModel` class.
  *
  * @example
  * ```js
@@ -78,7 +79,9 @@ function getNative(): NativeAddon {
  * localAIHandler.setPromptAPIHandler(() => AppleIntelligenceLanguageModel);
  * ```
  */
-export class AppleIntelligenceLanguageModel extends LanguageModel {
+export class AppleIntelligenceLanguageModel implements LanguageModel {
+  contextUsage: number;
+  contextWindow: number;
   private _session: AppleIntelligenceSession | null = null;
   private _systemPrompt: string | undefined;
   private _history: LanguageModelMessage[] = [];
@@ -86,7 +89,8 @@ export class AppleIntelligenceLanguageModel extends LanguageModel {
   private _ownsSession = true;
 
   constructor(options: { contextUsage: number; contextWindow: number }) {
-    super(options);
+    this.contextUsage = options.contextUsage;
+    this.contextWindow = options.contextWindow;
   }
 
   static async create(
@@ -249,9 +253,7 @@ export class AppleIntelligenceLanguageModel extends LanguageModel {
 
     const cloned = new (this
       .constructor as typeof AppleIntelligenceLanguageModel)({
-      // @ts-expect-error - not merged yet
       contextUsage: this.contextUsage,
-      // @ts-expect-error - not merged yet
       contextWindow: this.contextWindow,
     });
 
@@ -276,7 +278,6 @@ export class AppleIntelligenceLanguageModel extends LanguageModel {
       const text = this._buildPrompt([]);
       this._session.countTokens(text, (error, count) => {
         if (!error) {
-          // @ts-expect-error - not merged yet
           this.contextUsage = count;
         }
       });

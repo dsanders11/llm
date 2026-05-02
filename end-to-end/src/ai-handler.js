@@ -1,7 +1,7 @@
 import {
   LlamaCppLanguageModel,
   waitForMessage,
-} from '@dsanders11/electron-llm/utility';
+} from '@dsanders11/electron-llm/prompt-api';
 import { localAIHandler } from 'electron/utility';
 import path from 'node:path';
 
